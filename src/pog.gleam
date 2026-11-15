@@ -354,7 +354,9 @@ fn start_tree(config: Config) -> Result(Pid, dynamic.Dynamic)
 /// or it cannot connect for another reason it will continue to attempt to
 /// connect, and any queries made using the connection pool will fail.
 ///
-pub fn supervised(config: Config) -> supervision.ChildSpecification(Connection) {
+pub fn supervised(
+  config: Config,
+) -> supervision.ChildSpecification(Connection) {
   supervision.supervisor(fn() { start(config) })
 }
 
@@ -385,17 +387,28 @@ pub fn array(converter: fn(a) -> Value, values: List(a)) -> Value {
   |> coerce_value
 }
 
+/// Encode a `Timestamp` as a PostgreSQL `timestamptz` (`timestamp with time zone`)
+/// value with microsecond precision.
 pub fn timestamp(timestamp: Timestamp) -> Value {
   let #(seconds, nanoseconds) =
     timestamp.to_unix_seconds_and_nanoseconds(timestamp)
   coerce_value(seconds * 1_000_000 + nanoseconds / 1000)
 }
 
+/// Decode a PostgreSQL `timestamptz` (`timestamp with time zone`) value as a
+/// `Timestamp`.
 pub fn timestamp_decoder() -> decode.Decoder(Timestamp) {
   use microseconds <- decode.map(decode.int)
   let seconds = microseconds / 1_000_000
   let nanoseconds = { microseconds % 1_000_000 } * 1000
   timestamp.from_unix_seconds_and_nanoseconds(seconds, nanoseconds)
+}
+
+/// Encode a `Date` and `TimeOfDay` as a PostgreSQL `timestamp`
+/// (`timestamp without time zone`) value with microsecond precision.
+pub fn calendar_datetime(date: Date, time: TimeOfDay) -> Value {
+  timestamp.from_calendar(date, time, calendar.utc_offset)
+  |> timestamp
 }
 
 pub fn calendar_date(date: Date) -> Value {
@@ -868,6 +881,14 @@ pub fn error_code_name(error_code: String) -> Result(String, Nil) {
     "XX002" -> Ok("index_corrupted")
     _ -> Error(Nil)
   }
+}
+
+/// Decode a PostgreSQL `timestamp` (`timestamp without time zone`) value as a
+/// `#(Date, TimeOfDay)`.
+pub fn calendar_datetime_decoder() -> decode.Decoder(#(Date, TimeOfDay)) {
+  use date <- decode.field(0, calendar_date_decoder())
+  use time <- decode.field(1, calendar_time_of_day_decoder())
+  decode.success(#(date, time))
 }
 
 pub fn calendar_date_decoder() -> decode.Decoder(Date) {

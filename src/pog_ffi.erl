@@ -1,6 +1,19 @@
 -module(pog_ffi).
 
--export([query/4, query_extended/2, start/1, coerce/1, null/0, checkout/1]).
+-behaviour(pg_types).
+
+-export([
+    query/4,
+    query_extended/2,
+    start/1,
+    coerce/1,
+    null/0,
+    checkout/1,
+    init/1,
+    encode/2,
+    decode/2,
+    type_spec/0
+]).
 
 -include_lib("pog/include/pog_Config.hrl").
 -include_lib("pg_types/include/pg_types.hrl").
@@ -38,7 +51,7 @@ default_ssl_options(Host, Ssl) ->
 
 start(Config) ->
     % Unfortunately this has to be supplied via global mutable state currently.
-    application:set_env(pg_types, timestamp_config, integer_system_time_microseconds),
+    application:set_env(pg_types, modules, [pog_ffi]),
     #config{
         pool_name = PoolName,
         host = Host,
@@ -141,3 +154,15 @@ convert_error(#{
     {unexpected_argument_type, Expected, Got};
 convert_error(closed) ->
     query_timeout.
+
+init(_Opts) ->
+    {[<<"timestamptz_send">>], []}.
+
+encode(Timestamp, TypeInfo) ->
+    pg_timestamp:encode(Timestamp, TypeInfo).
+
+decode(Bin, _TypeInfo) ->
+    pg_timestamp:decode_timestamp(Bin, integer_system_time_microseconds).
+
+type_spec() ->
+    pg_timestamp:type_spec().

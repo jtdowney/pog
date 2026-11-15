@@ -141,7 +141,7 @@ pub fn selecting_rows_test() {
     INSERT INTO
       cats
     VALUES
-      (DEFAULT, 'neo', true, ARRAY ['black'], '2022-10-10 11:30:30.1', '2020-03-04')
+      (DEFAULT, 'neo', true, ARRAY ['black'], '2022-10-10 11:30:30.1Z', '2020-03-04')
     RETURNING
       id"
 
@@ -392,6 +392,115 @@ pub fn array_test() {
   |> disconnect
 }
 
+pub fn timestamp_test() {
+  let db =
+    start_default()
+    |> assert_roundtrip(
+      timestamp.from_calendar(
+        calendar.Date(2022, calendar.October, 12),
+        calendar.TimeOfDay(11, 30, 33, 101_000),
+        calendar.utc_offset,
+      ),
+      "timestamptz",
+      pog.timestamp,
+      pog.timestamp_decoder(),
+    )
+    |> assert_roundtrip(
+      timestamp.from_calendar(
+        calendar.Date(2022, calendar.October, 12),
+        calendar.TimeOfDay(11, 30, 30, 0),
+        calendar.utc_offset,
+      ),
+      "timestamptz",
+      pog.timestamp,
+      pog.timestamp_decoder(),
+    )
+    |> assert_roundtrip(
+      timestamp.from_calendar(
+        calendar.Date(1969, calendar.December, 31),
+        calendar.TimeOfDay(23, 59, 58, 500_101_000),
+        calendar.utc_offset,
+      ),
+      "timestamptz",
+      pog.timestamp,
+      pog.timestamp_decoder(),
+    )
+
+  assert pog.query("select '2022-10-10 13:30:30.100101+02:00'::timestamptz")
+    |> pog.returning(decode.at([0], pog.timestamp_decoder()))
+    |> pog.execute(db.data)
+    == Ok(
+      pog.Returned(count: 1, rows: [
+        timestamp.from_calendar(
+          calendar.Date(2022, calendar.October, 10),
+          calendar.TimeOfDay(11, 30, 30, 100_101_000),
+          calendar.utc_offset,
+        ),
+      ]),
+    )
+
+  disconnect(db)
+}
+
+pub fn calendar_datetime_test() {
+  let encode = fn(datetime: #(calendar.Date, calendar.TimeOfDay)) {
+    pog.calendar_datetime(datetime.0, datetime.1)
+  }
+  start_default()
+  |> assert_roundtrip(
+    #(
+      calendar.Date(2022, calendar.October, 12),
+      calendar.TimeOfDay(11, 30, 33, 101_000),
+    ),
+    "timestamp",
+    encode,
+    pog.calendar_datetime_decoder(),
+  )
+  |> assert_roundtrip(
+    #(
+      calendar.Date(2022, calendar.October, 12),
+      calendar.TimeOfDay(11, 30, 30, 0),
+    ),
+    "timestamp",
+    encode,
+    pog.calendar_datetime_decoder(),
+  )
+  |> disconnect
+}
+
+pub fn time_test() {
+  start_default()
+  |> assert_roundtrip(
+    calendar.TimeOfDay(11, 30, 33, 101_000),
+    "time",
+    pog.calendar_time_of_day,
+    pog.calendar_time_of_day_decoder(),
+  )
+  |> assert_roundtrip(
+    calendar.TimeOfDay(11, 30, 30, 0),
+    "time",
+    pog.calendar_time_of_day,
+    pog.calendar_time_of_day_decoder(),
+  )
+  |> disconnect
+}
+
+pub fn timestamp_decoder_mismatch_test() {
+  let db = start_default()
+
+  let assert Error(pog.UnexpectedResultType(_)) =
+    pog.query("select '2022-10-10 11:30:30'::timestamp")
+    |> pog.returning(decode.at([0], pog.timestamp_decoder()))
+    |> pog.execute(db.data)
+
+  let assert Error(pog.UnexpectedResultType(_)) =
+    pog.query("select '2022-10-10 11:30:30Z'::timestamptz")
+    |> pog.returning(decode.at([0], pog.calendar_datetime_decoder()))
+    |> pog.execute(db.data)
+
+  disconnect(db)
+}
+
 pub fn date_test() {
   start_default()
   |> assert_roundtrip(
@@ -513,7 +622,7 @@ pub fn expected_maps_test() {
     INSERT INTO
       cats
     VALUES
-      (DEFAULT, 'neo', true, ARRAY ['black'], '2022-10-10 11:30:30', '2020-03-04')
+      (DEFAULT, 'neo', true, ARRAY ['black'], '2022-10-10 11:30:30Z', '2020-03-04')
     RETURNING
       id"
 
